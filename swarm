@@ -1,0 +1,55 @@
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.neural_network import MLPRegressor
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import mean_absolute_error
+from pyswarm import pso
+
+# Load the dataset
+data = pd.read_excel('AirQualityUCI.xlsx')
+
+# Drop rows with NaN values
+data = data.dropna()
+
+# Select the relevant attributes
+features = data.iloc[:, [3, 6, 8, 10, 11, 12, 13, 14]].values
+target = data.iloc[:, 5].values
+
+# Normalize the features
+scaler = MinMaxScaler()
+features = scaler.fit_transform(features)
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.1, random_state=42)
+
+# Define the PSO function
+def pso_train(params):
+    hidden_layer_sizes = (int(params[0]),) * int(params[1])
+    mlp = MLPRegressor(hidden_layer_sizes=hidden_layer_sizes, max_iter=1000, random_state=42)
+    mlp.fit(X_train, y_train)
+    y_pred = mlp.predict(X_test)
+    return mean_absolute_error(y_test, y_pred)
+
+# Define the PSO parameters
+lb = [1, 1]  # Lower bounds for number of nodes and layers
+ub = [50, 3] # Upper bounds for number of nodes and layers
+
+# Optimize using PSO
+opt_params, opt_error = pso(pso_train, lb, ub, swarmsize=10, maxiter=10)
+
+# Train the final MLP model with optimized parameters
+hidden_layer_sizes = (int(opt_params[0]),) * int(opt_params[1])
+mlp = MLPRegressor(hidden_layer_sizes=hidden_layer_sizes, max_iter=1000, random_state=42)
+mlp.fit(X_train, y_train)
+
+# Predict for 5-day and 10-day ahead
+y_pred_5d = mlp.predict(X_test[-5:])
+y_pred_10d = mlp.predict(X_test[-10:])
+
+# Calculate MAE
+mae_5d = mean_absolute_error(y_test[-5:], y_pred_5d)
+mae_10d = mean_absolute_error(y_test[-10:], y_pred_10d)
+
+print(f'MAE for 5-day ahead prediction: {mae_5d}')
+print(f'MAE for 10-day ahead prediction: {mae_10d}')
