@@ -1,55 +1,85 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.neural_network import MLPRegressor
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import mean_absolute_error
-from pyswarm import pso
+import random
 
-# Load the dataset
-data = pd.read_excel('AirQualityUCI.xlsx')
+# อ่านข้อมูล
+df = pd.read_excel('AirQualityUCI.xlsx')
 
-# Drop rows with NaN values
-data = data.dropna()
+# เลือก attribute ที่จะใช้เป็น input และ output
+input_attr = [3, 6, 8, 10, 11, 12, 13, 14]
+output_attr = [5]
+inputs = df.iloc[:, input_attr].values
+outputs = df.iloc[:, output_attr].values
 
-# Select the relevant attributes
-features = data.iloc[:, [3, 6, 8, 10, 11, 12, 13, 14]].values
-target = data.iloc[:, 5].values
+# แบ่งข้อมูลสำหรับ cross-validation
+def train_test_split(data, test_size=0.1):
+    n_test = int(len(data) * test_size)
+    indices = list(range(len(data)))
+    random.shuffle(indices)
+    test_indices = indices[:n_test]
+    train_indices = indices[n_test:]
+    return data[train_indices], data[test_indices]
 
-# Normalize the features
-scaler = MinMaxScaler()
-features = scaler.fit_transform(features)
+X_train, X_test = train_test_split(inputs)
+y_train, y_test = train_test_split(outputs)
 
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.1, random_state=42)
+# ฟังก์ชั่นสำหรับการสร้าง MLP
+def create_mlp(input_dim, hidden_layers, output_dim):
+    network = []
+    for h in hidden_layers:
+        network.append(np.random.randn(input_dim, h))
+        input_dim = h
+    network.append(np.random.randn(input_dim, output_dim))
+    return network
 
-# Define the PSO function
-def pso_train(params):
-    hidden_layer_sizes = (int(params[0]),) * int(params[1])
-    mlp = MLPRegressor(hidden_layer_sizes=hidden_layer_sizes, max_iter=1000, random_state=42)
-    mlp.fit(X_train, y_train)
-    y_pred = mlp.predict(X_test)
-    return mean_absolute_error(y_test, y_pred)
+# ฟังก์ชั่นสำหรับการฟีดฟอร์เวิร์ด
+def forward(network, inputs):
+    for layer in network:
+        inputs = np.dot(inputs, layer)
+    return inputs
 
-# Define the PSO parameters
-lb = [1, 1]  # Lower bounds for number of nodes and layers
-ub = [50, 3] # Upper bounds for number of nodes and layers
+# ฟังก์ชั่นสำหรับการคำนวณ Mean Absolute Error (MAE)
+def mean_absolute_error(y_true, y_pred):
+    return np.mean(np.abs(y_true - y_pred))
 
-# Optimize using PSO
-opt_params, opt_error = pso(pso_train, lb, ub, swarmsize=10, maxiter=10)
+# ฟังก์ชั่นสำหรับการอัพเดท PSO
+def pso_update(particles, velocities, pbest, gbest, c1=2, c2=2, w=0.5):
+    for i in range(len(particles)):
+        for j in range(len(particles[i])):
+            r1, r2 = random.random(), random.random()
+            velocities[i][j] = (w * velocities[i][j] +
+                                c1 * r1 * (pbest[i][j] - particles[i][j]) +
+                                c2 * r2 * (gbest[j] - particles[i][j]))
+            particles[i][j] += velocities[i][j]
 
-# Train the final MLP model with optimized parameters
-hidden_layer_sizes = (int(opt_params[0]),) * int(opt_params[1])
-mlp = MLPRegressor(hidden_layer_sizes=hidden_layer_sizes, max_iter=1000, random_state=42)
-mlp.fit(X_train, y_train)
+# การตั้งค่าพารามิเตอร์ PSO
+num_particles = 30
+hidden_layers = [10, 10]
+input_dim = len(input_attr)
+output_dim = len(output_attr)
+particles = [create_mlp(input_dim, hidden_layers, output_dim) for _ in range(num_particles)]
+velocities = [[np.zeros_like(layer) for layer in particle] for particle in particles]
+pbest = particles.copy()
+pbest_mae = [float('inf')] * num_particles
+gbest = particles[0]
+gbest_mae = float('inf')
 
-# Predict for 5-day and 10-day ahead
-y_pred_5d = mlp.predict(X_test[-5:])
-y_pred_10d = mlp.predict(X_test[-10:])
+# การฝึก MLP โดยใช้ PSO
+epochs = 100
+for epoch in range(epochs):
+    for i in range(num_particles):
+        y_pred = forward(particles[i], X_train)
+        mae = mean_absolute_error(y_train, y_pred)
+        if mae < pbest_mae[i]:
+            pbest[i] = particles[i]
+            pbest_mae[i] = mae
+        if mae < gbest_mae:
+            gbest = particles[i]
+            gbest_mae = mae
+    pso_update(particles, velocities, pbest, gbest)
 
-# Calculate MAE
-mae_5d = mean_absolute_error(y_test[-5:], y_pred_5d)
-mae_10d = mean_absolute_error(y_test[-10:], y_pred_10d)
+# ทดสอบโมเดล
+y_pred_test = forward(gbest, X_test)
+test_mae = mean_absolute_error(y_test, y_pred_test)
 
-print(f'MAE for 5-day ahead prediction: {mae_5d}')
-print(f'MAE for 10-day ahead prediction: {mae_10d}')
+print(f'Test MAE: {test_mae:.4f}')
