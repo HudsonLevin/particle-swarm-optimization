@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import random
+import matplotlib.pyplot as plt
 
 # อ่านข้อมูล
 df = pd.read_excel('AirQualityUCI.xlsx')
@@ -66,20 +67,31 @@ gbest_mae = float('inf')
 
 # การฝึก MLP โดยใช้ PSO
 epochs = 100
+train_mae_over_epochs = []
+
 for epoch in range(epochs):
+    epoch_mae = []
     for i in range(num_particles):
         y_pred = forward(particles[i], X_train)
         mae = mean_absolute_error(y_train, y_pred)
+        epoch_mae.append(mae)
         if mae < pbest_mae[i]:
             pbest[i] = particles[i]
             pbest_mae[i] = mae
         if mae < gbest_mae:
             gbest = particles[i]
             gbest_mae = mae
+    train_mae_over_epochs.append(np.mean(epoch_mae))
     pso_update(particles, velocities, pbest, gbest)
 
 # ทดสอบโมเดล
 y_pred_test = forward(gbest, X_test)
 test_mae = mean_absolute_error(y_test, y_pred_test)
-
 print(f'Test MAE: {test_mae:.4f}')
+
+# Plot the training MAE over epochs
+plt.plot(range(epochs), train_mae_over_epochs)
+plt.xlabel('Epoch')
+plt.ylabel('Training Mean Absolute Error (MAE)')
+plt.title('Training MAE Over Epochs')
+plt.show()
